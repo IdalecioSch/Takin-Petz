@@ -1,0 +1,5 @@
+# Não executa scripts na pasta de uploads
+php_flag engine off
+<FilesMatch "\.(php|phtml|phar)$">
+    Require all denied
+</FilesMatch>
