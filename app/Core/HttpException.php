@@ -1,16 +1,25 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class HttpException extends \RuntimeException
+class HttpException extends \RuntimeException
 {
-    public function __construct(private int $status, string $mensagem = '')
+    private $status;
+
+    /**
+     * @param int $status
+     * @param string $message
+     */
+    public function __construct($status, $message = '')
     {
-        parent::__construct($mensagem, $status);
+        parent::__construct($message, $status);
+        $this->status = $status;
     }
 
-    public function status(): int
+    /**
+     * @return int
+     */
+    public function getStatus()
     {
         return $this->status;
     }

@@ -1,47 +1,85 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class Router
+use App\Utils\ControllerUtils;
+
+class Router
 {
-    /** @var array<int,array{metodo:string,regex:string,controller:string,acao:string}> */
-    private array $rotas = [];
+    private $routes = [];
 
-    public function get(string $padrao, string $controller, string $acao): void
+    /**
+     * @param string $pattern
+     * @param string $controller
+     * @param string $action
+     * @return void
+     */
+    public function get($pattern, $controller, $action)
     {
-        $this->adicionar('GET', $padrao, $controller, $acao);
+        $this->add('GET', $pattern, $controller, $action);
     }
 
-    public function post(string $padrao, string $controller, string $acao): void
+    /**
+     * @param string $pattern
+     * @param string $controller
+     * @param string $action
+     * @return void
+     */
+    public function post($pattern, $controller, $action)
     {
-        $this->adicionar('POST', $padrao, $controller, $acao);
+        $this->add('POST', $pattern, $controller, $action);
     }
 
-    private function adicionar(string $metodo, string $padrao, string $controller, string $acao): void
+    /**
+     * @param string $prefix
+     * @param string $controller
+     * @return void
+     */
+    public function crud($prefix, $controller)
     {
-        $regex = '#^' . preg_replace('#\{(\w+)\}#', '(?P<$1>[^/]+)', $padrao) . '$#';
-        $this->rotas[] = compact('metodo', 'regex', 'controller', 'acao');
+        $this->get($prefix, $controller, 'index');
+        $this->get($prefix . '/novo', $controller, 'create');
+        $this->post($prefix, $controller, 'store');
+        $this->get($prefix . '/{id}/editar', $controller, 'edit');
+        $this->post($prefix . '/{id}', $controller, 'update');
+        $this->post($prefix . '/{id}/excluir', $controller, 'destroy');
     }
 
-    public function despachar(Request $req): void
+    /**
+     * @param string $method
+     * @param string $pattern
+     * @param string $controller
+     * @param string $action
+     * @return void
+     */
+    private function add($method, $pattern, $controller, $action)
     {
-        $caminho = $req->caminho();
-        foreach ($this->rotas as $r) {
-            if ($r['metodo'] !== $req->metodo() || !preg_match($r['regex'], $caminho, $m)) {
+        $regex = '#^' . preg_replace('#\{(\w+)\}#', '(?P<$1>[^/]+)', $pattern) . '$#';
+        $this->routes[] = compact('method', 'regex', 'controller', 'action');
+    }
+
+    /**
+     * @return void
+     * @throws HttpException
+     */
+    public function dispatch()
+    {
+        $path = ControllerUtils::getPath();
+        foreach ($this->routes as $route) {
+            if ($route['method'] !== ControllerUtils::getMethod() || !preg_match($route['regex'], $path, $matches)) {
                 continue;
             }
             $params = [];
-            foreach ($m as $nome => $valor) {
-                if (is_string($nome)) {
-                    $params[] = ctype_digit($valor) ? (int)$valor : $valor;
+            foreach ($matches as $name => $value) {
+                if (is_string($name)) {
+                    $params[] = ctype_digit($value) ? (int)$value : $value;
                 }
             }
-            $controller = new $r['controller']($req);
-            $controller->antes();
-            $controller->{$r['acao']}(...$params);
+            $Controller = new $route['controller']();
+            $Controller->before();
+            call_user_func_array([$Controller, $route['action']], $params);
             return;
         }
-        throw new HttpException(404, 'Página não encontrada.');
+        throw new HttpException(404, Messages::ERROR_NOT_FOUND);
     }
 }

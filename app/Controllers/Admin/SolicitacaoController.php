@@ -1,78 +1,106 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Controllers\Admin;
 
-use App\Models\{Animal, Solicitacao};
-use App\Services\Notificador;
+use App\Core\{BusinessException, Messages};
+use App\Models\Solicitacao;
+use App\Persistence\{AnimalPersistence, PessoaPersistence, SolicitacaoPersistence};
+use App\Services\Notifier;
+use App\Utils\{ControllerUtils, StringUtils};
 
-final class SolicitacaoController extends AdminController
+class SolicitacaoController extends AdminController
 {
-    public function index(): void
+    /** @return SolicitacaoPersistence */
+    protected function createPersistence() { return new SolicitacaoPersistence(); }
+
+    /** @return Solicitacao */
+    protected function createModel() { return new Solicitacao(); }
+
+    /**
+     * @return void
+     */
+    public function index()
     {
-        $status = $this->req->consulta('status');
-        $animalId = (int)$this->req->consulta('animal');
-        $this->viewAdmin('admin/pedidos/index', [
-            'titulo' => 'Pedidos', 'ativo' => 'pedidos',
-            'status' => $status, 'animalId' => $animalId,
-            'pedidos' => Solicitacao::listar($status, $animalId),
-            'animais' => Animal::onde('TRUE', [], 'nome'),
+        $status = ControllerUtils::getQuery('status');
+        $animalId = (int)ControllerUtils::getQuery('animal');
+        $this->adminView('admin/requests/index', [
+            'title' => 'Pedidos',
+            'active' => 'pedidos',
+            'status' => $status,
+            'animalId' => $animalId,
+            'requests' => $this->Persistence->getList($status, $animalId),
+            'animals' => (new AnimalPersistence())->getAllModel([], [], 't.nome'),
         ]);
     }
 
-    public function mostrar(int $id): void
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function show($id)
     {
-        $s = Solicitacao::buscarOuFalhar($id);
-        $this->viewAdmin('admin/pedidos/mostrar', ['titulo' => 'Pedido #' . $id, 'ativo' => 'pedidos', 's' => $s]);
+        $Solicitacao = $this->Persistence->getModelByIdOrFail($id);
+        $this->adminView('admin/requests/show', ['title' => 'Pedido #' . $id, 'active' => 'pedidos', 'Solicitacao' => $Solicitacao]);
     }
 
-    /** RN04 / RN11 / RN12 / RN19 */
-    public function aprovar(int $id): void
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function approve($id)
     {
-        $this->verificarCsrf();
-        $s = Solicitacao::buscarOuFalhar($id);
+        $this->verifyCsrf();
+        $Solicitacao = $this->Persistence->getModelByIdOrFail($id);
         try {
-            $recusadas = $s->aprovar($this->admin);
-        } catch (\DomainException $e) {
-            $this->flash('erro', $e->getMessage());
-            $this->redirecionar('/admin/pedidos/' . $id);
+            $refused = $this->Persistence->approve($Solicitacao, $this->Admin);
+        } catch (BusinessException $Exception) {
+            $this->flash('erro', $Exception->getMessage());
+            $this->redirect('/admin/pedidos/' . $id);
         }
-        $n = new Notificador();
-        $n->statusAlterado($s);
-        foreach ($recusadas as $outra) {
-            $n->statusAlterado($outra);
+        $Notifier = new Notifier();
+        $Notifier->statusChanged($Solicitacao);
+        foreach ($refused as $Other) {
+            $Notifier->statusChanged($Other);
         }
-        $this->flash('ok', 'Pedido aprovado. O animal foi marcado como Adotado e os demais pedidos pendentes foram recusados.');
-        $this->redirecionar('/admin/pedidos/' . $id);
+        $this->flash('ok', Messages::REQUEST_APPROVED);
+        $this->redirect('/admin/pedidos/' . $id);
     }
 
-    /** RN13 / RN19 */
-    public function recusar(int $id): void
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function refuse($id)
     {
-        $this->verificarCsrf();
-        $s = Solicitacao::buscarOuFalhar($id);
-        $motivo = $this->req->texto('motivo');
-        if (mb_strlen($motivo) > 1000) {
-            $this->flash('erro', 'O motivo é muito longo (máx. 1000 caracteres).');
-            $this->redirecionar('/admin/pedidos/' . $id);
+        $this->verifyCsrf();
+        $Solicitacao = $this->Persistence->getModelByIdOrFail($id);
+        $reason = ControllerUtils::getPost('motivo');
+        if (StringUtils::length($reason) > 1000) {
+            $this->flash('erro', Messages::get(Messages::REFUSAL_REASON_TOO_LONG, 1000));
+            $this->redirect('/admin/pedidos/' . $id);
         }
         try {
-            $s->recusar($this->admin, $motivo);
-        } catch (\DomainException $e) {
-            $this->flash('erro', $e->getMessage());
-            $this->redirecionar('/admin/pedidos/' . $id);
+            $this->Persistence->refuse($Solicitacao, $this->Admin, $reason);
+        } catch (BusinessException $Exception) {
+            $this->flash('erro', $Exception->getMessage());
+            $this->redirect('/admin/pedidos/' . $id);
         }
-        (new Notificador())->statusAlterado($s);
-        $this->flash('ok', 'Pedido recusado.');
-        $this->redirecionar('/admin/pedidos/' . $id);
+        (new Notifier())->statusChanged($Solicitacao);
+        $this->flash('ok', Messages::REQUEST_REFUSED);
+        $this->redirect('/admin/pedidos/' . $id);
     }
 
-    /** RN22 (LGPD): apaga a pessoa, com todos os pedidos e mensagens dela. */
-    public function excluirDados(int $id): void
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function deletePersonalData($id)
     {
-        $this->verificarCsrf();
-        Solicitacao::buscarOuFalhar($id)->pessoa()->excluirDados();
-        $this->flash('ok', 'Os dados do solicitante foram excluídos.');
-        $this->redirecionar('/admin/pedidos');
+        $this->verifyCsrf();
+        $Solicitacao = $this->Persistence->getModelByIdOrFail($id);
+        $PessoaPersistence = new PessoaPersistence();
+        $PessoaPersistence->deletePersonalData($PessoaPersistence->getModelByIdOrFail($Solicitacao->pessoa_id));
+        $this->flash('ok', Messages::PERSONAL_DATA_DELETED);
+        $this->redirect('/admin/pedidos');
     }
 }

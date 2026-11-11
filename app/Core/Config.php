@@ -1,27 +1,34 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class Config
+class Config
 {
-    private static array $dados = [];
+    private static $data = [];
 
-    public static function carregar(string $arquivo): void
+    /**
+     * @param string $file
+     * @return void
+     */
+    public static function load($file)
     {
-        self::$dados = require $arquivo;
+        self::$data = require $file;
     }
 
-    /** Notação de ponto: Config::get('db.host'). */
-    public static function get(string $caminho, mixed $padrao = null): mixed
+    /**
+     * @param string $path
+     * @param mixed $default
+     * @return mixed
+     */
+    public static function get($path, $default = null)
     {
-        $v = self::$dados;
-        foreach (explode('.', $caminho) as $chave) {
-            if (!is_array($v) || !array_key_exists($chave, $v)) {
-                return $padrao;
+        $value = self::$data;
+        foreach (explode('.', $path) as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return $default;
             }
-            $v = $v[$chave];
+            $value = $value[$key];
         }
-        return $v;
+        return $value;
     }
 }

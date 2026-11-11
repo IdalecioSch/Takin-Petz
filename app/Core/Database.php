@@ -1,79 +1,95 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-use PDO;
-use PDOStatement;
+use App\Utils\PersistenciaUtils;
 
-/** Acesso ao PostgreSQL via PDO (conexão única, prepared statements sempre). */
-final class Database
+class Database
 {
-    private static ?PDO $pdo = null;
+    private static $Pdo;
 
-    public static function pdo(): PDO
+    /**
+     * @return \PDO
+     */
+    public static function getPdo()
     {
-        if (self::$pdo === null) {
+        if (self::$Pdo === null) {
             $c = Config::get('db');
             $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $c['host'], $c['porta'], $c['nome']);
-            self::$pdo = new PDO($dsn, $c['usuario'], $c['senha'], [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES   => false,
+            self::$Pdo = new \PDO($dsn, $c['usuario'], $c['senha'], [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+                \PDO::ATTR_EMULATE_PREPARES => false,
             ]);
         }
-        return self::$pdo;
+        return self::$Pdo;
     }
 
-    /** Executa com parâmetros nomeados (com ou sem ':'). bool vira 'true'/'false' (exigência do pdo_pgsql). */
-    public static function executar(string $sql, array $params = []): PDOStatement
+    /**
+     * @param string $sql
+     * @param array $params
+     * @return \PDOStatement
+     */
+    public static function execute($sql, $params = [])
     {
-        $st = self::pdo()->prepare($sql);
-        foreach ($params as $nome => $valor) {
-            $nome = ':' . ltrim((string)$nome, ':');
-            match (true) {
-                $valor === null  => $st->bindValue($nome, null, PDO::PARAM_NULL),
-                is_bool($valor)  => $st->bindValue($nome, $valor ? 'true' : 'false'),
-                is_int($valor)   => $st->bindValue($nome, $valor, PDO::PARAM_INT),
-                default          => $st->bindValue($nome, (string)$valor),
-            };
+        $Statement = self::getPdo()->prepare($sql);
+        PersistenciaUtils::bind($Statement, PersistenciaUtils::filterParams($sql, $params));
+        $Statement->execute();
+        return $Statement;
+    }
+
+    /**
+     * @param string $sql
+     * @param array $params
+     * @return array
+     */
+    public static function fetchAll($sql, $params = [])
+    {
+        return self::execute($sql, $params)->fetchAll();
+    }
+
+    /**
+     * @param string $sql
+     * @param array $params
+     * @return array|null
+     */
+    public static function fetchOne($sql, $params = [])
+    {
+        $row = self::execute($sql, $params)->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * @param string $sql
+     * @param array $params
+     * @return mixed
+     */
+    public static function fetchValue($sql, $params = [])
+    {
+        return self::execute($sql, $params)->fetchColumn();
+    }
+
+    /**
+     * @param callable $callback
+     * @return mixed
+     * @throws \Exception
+     */
+    public static function transaction($callback)
+    {
+        $Pdo = self::getPdo();
+        if ($Pdo->inTransaction()) {
+            return $callback();
         }
-        $st->execute();
-        return $st;
-    }
-
-    public static function todos(string $sql, array $params = []): array
-    {
-        return self::executar($sql, $params)->fetchAll();
-    }
-
-    public static function um(string $sql, array $params = []): ?array
-    {
-        return self::executar($sql, $params)->fetch() ?: null;
-    }
-
-    public static function valor(string $sql, array $params = []): mixed
-    {
-        return self::executar($sql, $params)->fetchColumn();
-    }
-
-    /** Roda $fn dentro de uma transação (reaproveita a transação aberta, se houver). */
-    public static function transacao(callable $fn): mixed
-    {
-        $pdo = self::pdo();
-        if ($pdo->inTransaction()) {
-            return $fn();
-        }
-        $pdo->beginTransaction();
+        $Pdo->beginTransaction();
         try {
-            $resultado = $fn();
-            $pdo->commit();
-            return $resultado;
-        } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
+            $result = $callback();
+            $Pdo->commit();
+            return $result;
+        } catch (\Throwable $Exception) {
+            if ($Pdo->inTransaction()) {
+                $Pdo->rollBack();
             }
-            throw $e;
+            throw $Exception;
         }
     }
 }

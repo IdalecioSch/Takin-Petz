@@ -1,15 +1,31 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Models\Animal;
+use App\Persistence\AnimalPersistence;
 
-final class HomeController extends Controller
+class HomeController extends Controller
 {
-    public function index(): void
+    /** @return AnimalPersistence */
+    protected function createPersistence() { return new AnimalPersistence(); }
+
+    /** @return Animal */
+    protected function createModel() { return new Animal(); }
+
+    /**
+     * @return void
+     */
+    public function index()
     {
-        $this->view('home/index', ['titulo' => 'Início', 'ativo' => '', 'recentes' => Animal::recentes(4)]);
+        $counts = $this->Persistence->countByStatus();
+        $this->view('home/index', [
+            'title' => 'Início',
+            'active' => '',
+            'recent' => $this->Persistence->getRecent(4),
+            'availableCount' => $counts['disponivel'],
+            'adoptedCount' => $counts['adotado'],
+        ]);
     }
 }

@@ -17,7 +17,7 @@
     <ul class="tags">
       <li><?= e($animal->especieNome()) ?></li>
       <li><?= e($animal->sexoNome()) ?></li>
-      <li>Porte <?= e(mb_strtolower($animal->porteNome())) ?></li>
+      <li>Porte <?= e(strtolower($animal->porteNome())) ?></li>
       <li><?= e($animal->faixaNome()) ?></li>
       <?php if ($animal->racaNome() !== ''): ?><li><?= e($animal->racaNome()) ?></li><?php endif; ?>
       <?php if ($animal->corNome() !== ''): ?><li><?= e($animal->corNome()) ?></li><?php endif; ?>

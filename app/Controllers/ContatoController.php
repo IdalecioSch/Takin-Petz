@@ -22,11 +22,11 @@ final class ContatoController extends Controller
         }
         $r = $this->req;
         $nome = $r->texto('nome');
-        $email = mb_strtolower($r->texto('email'));
+        $email = strtolower($r->texto('email'));
         $msg = $r->texto('mensagem');
 
         $v = (new Validator([]))
-            ->regra($nome !== '' && mb_strlen($nome) <= 160, 'Informe seu nome.')
+            ->regra($nome !== '' && strlen($nome) <= 160, 'Informe seu nome.')
             ->email($email, 'Informe um e-mail válido.')
             ->tamanho($msg, 10, 3000, 'Escreva uma mensagem (entre 10 e 3000 caracteres).')
             ->regra($r->marcado('lgpd'), 'É necessário concordar com o uso dos seus dados para responder sua mensagem.');

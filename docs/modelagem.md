@@ -91,3 +91,33 @@ erDiagram
 
 - Quando a mesma pessoa pede de novo, o sistema reaproveita o registro (pelo e-mail) e atualiza nome, telefone e cidade para os dados mais recentes. Isso é consequência de a 3FN guardar cada fato uma vez só.
 - Cidade, raça e cor continuam sendo digitadas pelo usuário/admin, mas o *model* reaproveita o registro existente (sem diferenciar maiúsculas) em vez de criar duplicatas.
+
+## Módulo de saúde (também em 3FN)
+
+| Tabela | Para quê |
+| --- | --- |
+| `veterinarios` | quem atendeu (selecionado, não digitado) |
+| `vacinas` | catálogo de vacinas; `especie` nula = serve para qualquer espécie |
+| `animais_vacinas` | aplicação: animal, vacina, data, próxima dose, veterinário |
+| `tipos_alimentacao` | domínio (ração seca/úmida, natural, mista, terapêutica) |
+| `dietas` | alimentação do animal ao longo do tempo (início, fim, refeições/dia, restrições) |
+| `sintomas` | catálogo do que o animal pode apresentar |
+| `consultas` | data, motivo, diagnóstico, tratamento, retorno |
+| `consultas_sintomas` | N:N entre consulta e sintoma (chave composta) |
+
+Constraints: próxima dose e retorno não podem ser anteriores à data base; dieta só encerra depois de iniciar;
+refeições por dia entre 1 e 12; apagar o animal apaga sua saúde (`ON DELETE CASCADE`); apagar um veterinário só
+desvincula os registros (`ON DELETE SET NULL`).
+
+```mermaid
+erDiagram
+    ANIMAIS ||--o{ ANIMAIS_VACINAS : recebe
+    VACINAS ||--o{ ANIMAIS_VACINAS : "é aplicada"
+    ANIMAIS ||--o{ DIETAS : segue
+    TIPOS_ALIMENTACAO ||--o{ DIETAS : classifica
+    ANIMAIS ||--o{ CONSULTAS : faz
+    VETERINARIOS |o--o{ CONSULTAS : atende
+    VETERINARIOS |o--o{ ANIMAIS_VACINAS : aplica
+    CONSULTAS ||--o{ CONSULTAS_SINTOMAS : registra
+    SINTOMAS ||--o{ CONSULTAS_SINTOMAS : aparece
+```

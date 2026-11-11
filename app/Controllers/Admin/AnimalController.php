@@ -1,169 +1,198 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Controllers\Admin;
 
-use App\Core\{Database, Dominio, Validator};
-use App\Models\{Animal, Foto};
-use App\Services\UploadFotos;
+use App\Core\{BusinessException, Config, Database, Domain, Messages, Validator};
+use App\Models\Animal;
+use App\Persistence\{AnimalPersistence, CorPersistence, RacaPersistence};
+use App\Services\PhotoUploader;
+use App\Utils\{ArrayUtils, ControllerUtils, ModelUtils, StringUtils};
 
-final class AnimalController extends AdminController
+class AnimalController extends AdminController
 {
-    public function index(): void
+    /** @return AnimalPersistence */
+    protected function createPersistence() { return new AnimalPersistence(); }
+
+    /** @return Animal */
+    protected function createModel() { return new Animal(); }
+
+    /**
+     * @return void
+     */
+    public function index()
     {
-        $busca = $this->req->consulta('q');
-        $status = $this->req->consulta('status');
-        $this->viewAdmin('admin/animais/index', [
-            'titulo' => 'Animais', 'ativo' => 'animais',
-            'busca' => $busca, 'status' => $status,
-            'animais' => Animal::paraAdmin($busca, $status),
+        $search = ControllerUtils::getQuery('q');
+        $status = ControllerUtils::getQuery('status');
+        $this->adminView('admin/animals/index', [
+            'title' => 'Animais',
+            'active' => 'animais',
+            'search' => $search,
+            'status' => $status,
+            'animals' => $this->Persistence->getForAdmin($search, $status),
         ]);
     }
 
-    public function criar(): void
+    /**
+     * @return void
+     */
+    public function create()
     {
-        $this->formulario(new Animal(['status' => 'disponivel']), []);
+        $this->Model->status = 'disponivel';
+        $this->renderForm($this->Model, []);
     }
 
-    public function salvar(): void
+    /**
+     * @return void
+     */
+    public function store()
     {
-        $this->verificarCsrf();
-        $animal = new Animal();
-        $erros = $this->gravar($animal);
-        if ($erros) {
-            $this->formulario($animal, $erros);
-            return;
+        $this->verifyCsrf();
+        $errors = $this->persist($this->Model);
+        $errors ? $this->renderForm($this->Model, $errors) : $this->finish();
+    }
+
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function edit($id)
+    {
+        $this->renderForm($this->Persistence->getModelByIdOrFail($id), []);
+    }
+
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function update($id)
+    {
+        $this->verifyCsrf();
+        $Animal = $this->Persistence->getModelByIdOrFail($id);
+        $errors = $this->persist($Animal);
+        $errors ? $this->renderForm($Animal, $errors) : $this->finish();
+    }
+
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function changeStatus($id)
+    {
+        $this->verifyCsrf();
+        $Animal = $this->Persistence->getModelByIdOrFail($id);
+        $status = ControllerUtils::getPost('status');
+        if (Domain::isValid('status_animal', $status)) {
+            $this->Persistence->updateStatus($Animal, $status);
+            $this->flash('ok', Messages::get(Messages::ANIMAL_STATUS_CHANGED, $Animal->nome, $Animal->getStatusLabel()));
         }
-        $this->flash('ok', 'Animal salvo com sucesso.');
-        $this->redirecionar('/admin/animais');
+        $this->redirect('/admin/animais');
     }
 
-    public function editar(int $id): void
+    /**
+     * @param int $id
+     * @return void
+     */
+    public function destroy($id)
     {
-        $this->formulario(Animal::buscarOuFalhar($id), []);
-    }
-
-    public function atualizar(int $id): void
-    {
-        $this->verificarCsrf();
-        $animal = Animal::buscarOuFalhar($id);
-        $erros = $this->gravar($animal);
-        if ($erros) {
-            $this->formulario($animal, $erros);
-            return;
-        }
-        $this->flash('ok', 'Animal salvo com sucesso.');
-        $this->redirecionar('/admin/animais');
-    }
-
-    /** RF15 / RN06 */
-    public function alterarStatus(int $id): void
-    {
-        $this->verificarCsrf();
-        $animal = Animal::buscarOuFalhar($id);
-        $novo = $this->req->texto('status');
-        if (Dominio::valido('status_animal', $novo)) {
-            $animal->status = $novo;
-            $animal->salvar();
-            $this->flash('ok', 'Status de ' . $animal->nome . ' alterado para ' . $animal->statusNome() . '.');
-        }
-        $this->redirecionar('/admin/animais');
-    }
-
-    /** RF16 / RN05 */
-    public function excluir(int $id): void
-    {
-        $this->verificarCsrf();
-        $animal = Animal::buscarOuFalhar($id);
+        $this->verifyCsrf();
+        $Animal = $this->Persistence->getModelByIdOrFail($id);
         try {
-            (new UploadFotos())->apagar($animal->remover());
-            $this->flash('ok', $animal->nome . ' foi excluído.');
-        } catch (\DomainException $e) {
-            $this->flash('erro', $e->getMessage());
+            (new PhotoUploader())->remove($this->Persistence->deleteSafely($Animal));
+            $this->flash('ok', Messages::get(Messages::ANIMAL_DELETED, $Animal->nome));
+        } catch (BusinessException $Exception) {
+            $this->flash('erro', $Exception->getMessage());
         }
-        $this->redirecionar('/admin/animais');
+        $this->redirect('/admin/animais');
     }
 
-    /** Valida o formulário e grava animal + raça/cor + fotos. Retorna a lista de erros (vazia = sucesso). */
-    private function gravar(Animal $animal): array
+    /** @return void */
+    private function finish()
     {
-        $r = $this->req;
-        $d = $this->dadosDoFormulario();
+        $this->flash('ok', Messages::ANIMAL_SAVED);
+        $this->redirect('/admin/animais');
+    }
 
-        // RN01
-        $v = (new Validator($d))
-            ->regra($d['nome'] !== '' && mb_strlen($d['nome']) <= 80, 'Informe o nome (até 80 caracteres).')
-            ->emDominio('especies', $d['especie'], 'Selecione a espécie.')
-            ->emDominio('sexos', $d['sexo'], 'Selecione o sexo.')
-            ->emDominio('portes', $d['porte'], 'Selecione o porte.')
-            ->emDominio('faixas_etarias', $d['faixa_etaria'], 'Selecione a faixa de idade.')
-            ->emDominio('status_animal', $d['status'], 'Status inválido.')
-            ->regra(mb_strlen($d['raca']) <= 80 && mb_strlen($d['cor']) <= 60, 'Raça (até 80) ou cor (até 60) muito longa.');
+    /** Valida e grava animal + fotos. Retorna a lista de erros (vazia = sucesso). */
+    private function persist(Animal $Animal)
+    {
+        $data = [
+            'nome' => ControllerUtils::getPost('nome'),
+            'especie' => ControllerUtils::getPost('especie'),
+            'sexo' => ControllerUtils::getPost('sexo'),
+            'porte' => ControllerUtils::getPost('porte'),
+            'faixa_etaria' => ControllerUtils::getPost('faixa_etaria'),
+            'status' => ControllerUtils::getPost('status') ?: 'disponivel',
+            'raca_id' => ControllerUtils::getPostInt('raca_id') ?: null,
+            'cor_id' => ControllerUtils::getPostInt('cor_id') ?: null,
+            'descricao' => StringUtils::emptyToNull(ControllerUtils::getPost('descricao')),
+            'temperamento' => StringUtils::emptyToNull(ControllerUtils::getPost('temperamento')),
+            'castrado' => ControllerUtils::isChecked('castrado'),
+            'vacinado' => ControllerUtils::isChecked('vacinado'),
+            'vermifugado' => ControllerUtils::isChecked('vermifugado'),
+        ];
+        $Animal->fill($data);
+
+        $Validator = new Validator();
+        $Validator
+            ->rule($data['nome'] !== '' && StringUtils::length($data['nome']) <= 80, Messages::get(Messages::V_ANIMAL_NAME, 80))
+            ->inDomain('especies', $data['especie'], Messages::V_SPECIES)
+            ->inDomain('sexos', $data['sexo'], Messages::V_SEX)
+            ->inDomain('portes', $data['porte'], Messages::V_SIZE)
+            ->inDomain('faixas_etarias', $data['faixa_etaria'], Messages::V_AGE_GROUP)
+            ->inDomain('status_animal', $data['status'], Messages::V_STATUS);
+        if ($data['raca_id']) {
+            $Raca = (new RacaPersistence())->getModelById($data['raca_id']);
+            $Validator->rule($Raca && $Raca->especie === $data['especie'], Messages::V_BREED);
+        }
+        if ($data['cor_id']) {
+            $Validator->rule((new CorPersistence())->getModelById($data['cor_id']) !== null, Messages::V_COLOR);
+        }
 
         // Fotos: RN01 (mín. 1) e RN17 (máx. 5, 3 MB, JPG/PNG/WEBP)
-        $upload = new UploadFotos();
-        $novas = $r->arquivos('fotos');
-        $idsAtuais = array_map(fn(Foto $f) => $f->id(), $animal->existe() ? $animal->fotos() : []);
-        $remover = array_values(array_intersect($r->inteiros('remover'), $idsAtuais));
-        $total = count($idsAtuais) - count($remover) + count($novas);
-        $max = (int)\App\Core\Config::get('upload.max_fotos');
-        $v->regra($total >= 1, 'O animal precisa ter pelo menos uma foto.')
-          ->regra($total <= $max, "Máximo de $max fotos por animal.")
-          ->adicionar($upload->validar($novas));
-        if ($v->falhou()) {
-            $animal->preencher($d + ['castrado' => $r->marcado('castrado'), 'vacinado' => $r->marcado('vacinado'), 'vermifugado' => $r->marcado('vermifugado')]);
-            return $v->erros();
+        $Uploader = new PhotoUploader();
+        $newFiles = ControllerUtils::getFiles('photos');
+        $currentIds = $Animal->isNew() ? [] : ModelUtils::getIds($Animal->getPhotos());
+        $removeIds = array_values(array_intersect(ControllerUtils::getPostIntList('remove'), $currentIds));
+        $total = count($currentIds) - count($removeIds) + count($newFiles);
+        $max = (int)Config::get('upload.max_fotos');
+        $Validator
+            ->rule($total >= 1, Messages::V_PHOTOS_MIN)
+            ->rule($total <= $max, Messages::get(Messages::V_PHOTOS_MAX, $max))
+            ->addErrors($Uploader->validate($newFiles));
+        if ($Validator->failed()) {
+            return $Validator->getErrors();
         }
 
-        $salvos = [];
+        $stored = [];
         try {
-            $salvos = $upload->salvar($novas);
-            $removidos = Database::transacao(function () use ($animal, $d, $r, $salvos, $remover): array {
-                $animal->preencher([
-                    'nome' => $d['nome'], 'especie' => $d['especie'], 'sexo' => $d['sexo'], 'porte' => $d['porte'],
-                    'faixa_etaria' => $d['faixa_etaria'], 'status' => $d['status'],
-                    'descricao' => $d['descricao'] ?: null, 'temperamento' => $d['temperamento'] ?: null,
-                    'castrado' => $r->marcado('castrado'), 'vacinado' => $r->marcado('vacinado'), 'vermifugado' => $r->marcado('vermifugado'),
-                ]);
-                $animal->definirRacaECor($d['raca'], $d['cor'])->salvar();
-                return $animal->sincronizarFotos($remover, $salvos, (int)($_POST['principal'] ?? 0));
+            $stored = $Uploader->store($newFiles);
+            $removedFiles = Database::transaction(function () use ($Animal, $removeIds, $stored) {
+                $this->Persistence->save($Animal);
+                return $this->Persistence->syncPhotos($Animal, $removeIds, $stored, ControllerUtils::getPostInt('principal'));
             });
-        } catch (\Throwable $e) {
-            $upload->apagar($salvos);
-            error_log('[animal] ' . $e->getMessage());
-            return ['Não foi possível salvar. ' . (\App\Core\Config::get('debug') ? $e->getMessage() : 'Tente novamente.')];
+        } catch (\Throwable $Exception) {
+            $Uploader->remove($stored);
+            error_log('[animal] ' . $Exception->getMessage());
+            return [Messages::get(Messages::SAVE_FAILED, Config::get('debug') ? $Exception->getMessage() : Messages::TRY_AGAIN)];
         }
-        $upload->apagar($removidos); // só depois do commit
+        $Uploader->remove($removedFiles); // só depois do commit
         return [];
     }
 
-    private function dadosDoFormulario(): array
+    /**
+     * @param Animal $Animal
+     * @param array $errors
+     * @return void
+     */
+    private function renderForm(Animal $Animal, $errors)
     {
-        $r = $this->req;
-        return [
-            'nome' => $r->texto('nome'), 'especie' => $r->texto('especie'), 'sexo' => $r->texto('sexo'),
-            'porte' => $r->texto('porte'), 'faixa_etaria' => $r->texto('faixa_etaria'),
-            'raca' => $r->texto('raca'), 'cor' => $r->texto('cor'),
-            'descricao' => $r->texto('descricao'), 'temperamento' => $r->texto('temperamento'),
-            'status' => $r->texto('status') ?: 'disponivel',
-        ];
-    }
-
-    private function formulario(Animal $animal, array $erros): void
-    {
-        $post = $this->req->ehPost();
-        $valores = [
-            'nome' => $animal->nome, 'especie' => $animal->especie, 'sexo' => $animal->sexo, 'porte' => $animal->porte,
-            'faixa_etaria' => $animal->faixa_etaria, 'status' => $animal->status ?? 'disponivel',
-            'raca' => $post ? $this->req->texto('raca') : ($animal->existe() ? $animal->racaNome() : ''),
-            'cor' => $post ? $this->req->texto('cor') : ($animal->existe() ? $animal->corNome() : ''),
-            'descricao' => $animal->descricao, 'temperamento' => $animal->temperamento,
-            'castrado' => $animal->castrado, 'vacinado' => $animal->vacinado, 'vermifugado' => $animal->vermifugado,
-        ];
-        $titulo = $animal->existe() ? 'Editar ' . $animal->nome : 'Cadastrar animal';
-        $this->viewAdmin('admin/animais/formulario', [
-            'titulo' => $titulo, 'ativo' => 'animais', 'animal' => $animal, 'v' => $valores, 'erros' => $erros,
-            'fotos' => $animal->existe() ? $animal->fotos() : [],
+        $this->adminView('admin/animals/form', [
+            'title' => $Animal->isNew() ? 'Cadastrar animal' : 'Editar ' . $Animal->nome,
+            'active' => 'animais',
+            'Animal' => $Animal,
+            'errors' => $errors,
+            'breeds' => (new RacaPersistence())->getAllModel(),
+            'colors' => (new CorPersistence())->getAllModel(),
         ]);
     }
 }

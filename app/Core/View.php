@@ -1,30 +1,41 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class View
+class View
 {
-    /** Renderiza app/Views/$template.php dentro de app/Views/layouts/$layout.php (ou sem layout). */
-    public static function renderizar(string $template, array $dados = [], ?string $layout = 'site'): string
+    /**
+     * @param string $template
+     * @param array $data
+     * @param string|null $layout
+     * @return string
+     * @throws \Exception
+     */
+    public static function render($template, $data = [], $layout = 'site')
     {
-        $conteudo = self::capturar($template, $dados);
+        $content = self::capture($template, $data);
         if ($layout === null) {
-            return $conteudo;
+            return $content;
         }
-        return self::capturar('layouts/' . $layout, $dados + ['conteudo' => $conteudo]);
+        return self::capture('layouts/' . $layout, $data + ['content' => $content]);
     }
 
-    private static function capturar(string $__template, array $__dados): string
+    /**
+     * @param string $__template
+     * @param array $__data
+     * @return string
+     * @throws \Throwable
+     */
+    private static function capture($__template, $__data)
     {
-        extract($__dados, EXTR_SKIP);
+        extract($__data, EXTR_SKIP);
         ob_start();
         try {
             require ROOT . '/app/Views/' . $__template . '.php';
             return (string)ob_get_clean();
-        } catch (\Throwable $e) {
+        } catch (\Throwable $Exception) {
             ob_end_clean();
-            throw $e;
+            throw $Exception;
         }
     }
 }

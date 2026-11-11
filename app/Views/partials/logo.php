@@ -1,0 +1,1 @@
+<svg viewBox="0 0 64 64" aria-hidden="true"><g fill="#ff7a45"><ellipse cx="32" cy="42" rx="14" ry="11"/><ellipse cx="14" cy="28" rx="5.5" ry="7.5" transform="rotate(-18 14 28)"/><ellipse cx="26" cy="18" rx="5.5" ry="8"/><ellipse cx="38" cy="18" rx="5.5" ry="8"/><ellipse cx="50" cy="28" rx="5.5" ry="7.5" transform="rotate(18 50 28)"/></g></svg>

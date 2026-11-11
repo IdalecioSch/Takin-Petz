@@ -1,38 +1,80 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
+use App\Utils\ControllerUtils;
+
+/** Todo controller possui a Persistence e o Model do assunto dele. */
 abstract class Controller
 {
-    public function __construct(protected Request $req)
+    protected $Persistence;
+    protected $Model;
+
+    /**
+     */
+    public function __construct()
+    {
+        $this->Persistence = $this->createPersistence();
+        $this->Model = $this->createModel();
+    }
+
+    /** @return Persistence|null */
+    protected function createPersistence()
+    {
+        return null;
+    }
+
+    /** @return Model|null */
+    protected function createModel()
+    {
+        return null;
+    }
+
+    /**
+     * @return void
+     */
+    public function before()
     {
     }
 
-    /** Executado pelo Router antes da ação (útil para exigir login). */
-    public function antes(): void
-    {
-    }
-
-    protected function view(string $template, array $dados = [], string $layout = 'site', int $status = 200): void
+    /**
+     * @param string $template
+     * @param array $data
+     * @param string $layout
+     * @param int $status
+     * @return void
+     */
+    protected function view($template, $data = [], $layout = 'site', $status = 200)
     {
         http_response_code($status);
-        echo View::renderizar($template, $dados, $layout);
+        echo View::render($template, $data, $layout);
     }
 
-    protected function redirecionar(string $caminho): never
+    /**
+     * @param string $path
+     * @return void
+     */
+    protected function redirect($path)
     {
-        header('Location: ' . url($caminho));
-        exit;
+        ControllerUtils::redirect($path);
     }
 
-    protected function flash(string $tipo, string $msg): void
+    /**
+     * @param string $type
+     * @param string $message
+     * @return void
+     */
+    protected function flash($type, $message)
     {
-        Session::flash($tipo, $msg);
+        Session::flash($type, $message);
     }
 
-    protected function verificarCsrf(): void
+    /**
+     * @return void
+     * @throws HttpException
+     */
+    protected function verifyCsrf()
     {
-        Csrf::verificar();
+        Csrf::verify();
     }
 }

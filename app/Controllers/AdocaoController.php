@@ -31,7 +31,7 @@ final class AdocaoController extends Controller
         $r = $this->req;
         $d = [
             'nome'     => $r->texto('nome'),
-            'email'    => mb_strtolower($r->texto('email')),
+            'email'    => strtolower($r->texto('email')),
             'telefone' => $r->texto('telefone'),
             'cidade'   => $r->texto('cidade'),
             'uf'       => $r->texto('uf'),
@@ -43,14 +43,14 @@ final class AdocaoController extends Controller
 
         // RF06 / RN07 / RN08 / RN21
         $v = (new Validator($d))
-            ->regra(mb_strlen($d['nome']) >= 5 && mb_strlen($d['nome']) <= 160 && str_contains($d['nome'], ' '), 'Informe seu nome completo.')
+            ->regra(strlen($d['nome']) >= 5 && strlen($d['nome']) <= 160 && str_contains($d['nome'], ' '), 'Informe seu nome completo.')
             ->email($d['email'], 'Informe um e-mail válido.')
             ->regra($digitos >= 10 && $digitos <= 11, 'Informe um telefone válido com DDD.')
-            ->regra($d['cidade'] !== '' && mb_strlen($d['cidade']) <= 100, 'Informe sua cidade.')
+            ->regra($d['cidade'] !== '' && strlen($d['cidade']) <= 100, 'Informe sua cidade.')
             ->emDominio('estados', $d['uf'], 'Selecione o estado.')
             ->emDominio('tipos_moradia', $d['moradia'], 'Selecione o tipo de moradia.')
             ->regra(in_array($d['outros'], ['sim', 'nao'], true), 'Informe se você possui outros animais.')
-            ->regra(mb_strlen($d['motivacao']) >= 20, 'Conte um pouco mais sobre sua motivação (mínimo de 20 caracteres).')
+            ->regra(strlen($d['motivacao']) >= 20, 'Conte um pouco mais sobre sua motivação (mínimo de 20 caracteres).')
             ->regra($r->marcado('maior_18'), 'É necessário declarar que você tem mais de 18 anos.')
             ->regra($r->marcado('termo'), 'É necessário aceitar o termo de responsabilidade.')
             ->regra($r->marcado('lgpd'), 'É necessário concordar com o uso dos seus dados para esta finalidade.');

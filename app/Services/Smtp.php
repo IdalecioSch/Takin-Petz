@@ -1,122 +1,160 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Services;
 
 /** Cliente SMTP mínimo (sockets): STARTTLS/SSL, AUTH LOGIN, mensagem texto + HTML. */
-final class Smtp
+class Smtp
 {
-    /** @var resource|null */
-    private $fp = null;
+    private $socket;
+    private $config;
 
-    public function __construct(private array $c)
+    /**
+     * @param array $config
+     */
+    public function __construct($config)
     {
+        $this->config = $config;
     }
 
-    public function enviar(string $para, string $assunto, string $html, string $texto): void
+    /**
+     * @param string $to
+     * @param string $subject
+     * @param string $html
+     * @param string $text
+     * @return void
+     * @throws \RuntimeException
+     */
+    public function send($to, $subject, $html, $text)
     {
-        $c = $this->c;
-        $seg = $c['seguranca'] ?? 'tls';
-        $alvo = ($seg === 'ssl' ? 'ssl://' : 'tcp://') . $c['host'] . ':' . $c['porta'];
-        $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+        $c = $this->config;
+        $security = isset($c['seguranca']) ? $c['seguranca'] : 'tls';
+        $target = ($security === 'ssl' ? 'ssl://' : 'tcp://') . $c['host'] . ':' . $c['porta'];
+        $context = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+        $timeout = isset($c['timeout']) ? (int)$c['timeout'] : 10;
 
-        $this->fp = @stream_socket_client($alvo, $errno, $errstr, (float)($c['timeout'] ?? 10), STREAM_CLIENT_CONNECT, $ctx);
-        if (!$this->fp) {
+        $this->socket = @stream_socket_client($target, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $context);
+        if (!$this->socket) {
             throw new \RuntimeException("SMTP: não conectou em {$c['host']}:{$c['porta']} ($errstr)");
         }
-        stream_set_timeout($this->fp, (int)($c['timeout'] ?? 10));
+        stream_set_timeout($this->socket, $timeout);
 
         try {
-            $this->esperar([220]);
+            $this->expect([220]);
             $ehlo = gethostname() ?: 'localhost';
-            $this->cmd("EHLO $ehlo", [250]);
+            $this->command("EHLO $ehlo", [250]);
 
-            if ($seg === 'tls') {
-                $this->cmd('STARTTLS', [220]);
-                if (!stream_socket_enable_crypto($this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            if ($security === 'tls') {
+                $this->command('STARTTLS', [220]);
+                if (!stream_socket_enable_crypto($this->socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
                     throw new \RuntimeException('SMTP: falha ao iniciar TLS');
                 }
-                $this->cmd("EHLO $ehlo", [250]);
+                $this->command("EHLO $ehlo", [250]);
             }
 
             if (!empty($c['usuario'])) {
-                $this->cmd('AUTH LOGIN', [334]);
-                $this->cmd(base64_encode($c['usuario']), [334]);
-                $this->cmd(base64_encode($c['senha']), [235]);
+                $this->command('AUTH LOGIN', [334]);
+                $this->command(base64_encode($c['usuario']), [334]);
+                $this->command(base64_encode($c['senha']), [235]);
             }
 
-            $this->cmd('MAIL FROM:<' . $c['remetente_email'] . '>', [250]);
-            $this->cmd('RCPT TO:<' . $para . '>', [250, 251]);
-            $this->cmd('DATA', [354]);
+            $this->command('MAIL FROM:<' . $c['remetente_email'] . '>', [250]);
+            $this->command('RCPT TO:<' . $to . '>', [250, 251]);
+            $this->command('DATA', [354]);
 
-            $msg = preg_replace('/^\./m', '..', $this->montar($para, $assunto, $html, $texto)); // dot-stuffing
-            fwrite($this->fp, $msg . "\r\n.\r\n");
-            $this->esperar([250]);
+            $message = preg_replace('/^\./m', '..', $this->buildMessage($to, $subject, $html, $text));
+            fwrite($this->socket, $message . "\r\n.\r\n");
+            $this->expect([250]);
 
             try {
-                $this->cmd('QUIT', [221]);
-            } catch (\Throwable) {
+                $this->command('QUIT', [221]);
+            } catch (\Throwable $Ignored) {
             }
         } finally {
-            if (is_resource($this->fp)) {
-                fclose($this->fp);
+            if (is_resource($this->socket)) {
+                fclose($this->socket);
             }
         }
     }
 
-    private function montar(string $para, string $assunto, string $html, string $texto): string
+    /**
+     * @param string $to
+     * @param string $subject
+     * @param string $html
+     * @param string $text
+     * @return string
+     */
+    private function buildMessage($to, $subject, $html, $text)
     {
-        $c = $this->c;
-        $nome = $this->limpar($c['remetente_nome'] ?? '');
-        $from = $nome !== '' ? $this->codificar($nome) . ' <' . $c['remetente_email'] . '>' : $c['remetente_email'];
-        $dominio = substr(strrchr($c['remetente_email'], '@') ?: '@localhost', 1);
-        $limite = '=_' . bin2hex(random_bytes(12));
+        $c = $this->config;
+        $name = $this->clean(isset($c['remetente_nome']) ? $c['remetente_nome'] : '');
+        $from = $name !== '' ? $this->encode($name) . ' <' . $c['remetente_email'] . '>' : $c['remetente_email'];
+        $domain = substr(strrchr($c['remetente_email'], '@') ?: '@localhost', 1);
+        $boundary = '=_' . bin2hex(random_bytes(12));
 
-        $cabecalhos = [
+        $headers = [
             'Date: ' . date('r'),
             'From: ' . $from,
-            'To: ' . $para,
-            'Subject: ' . $this->codificar($this->limpar($assunto)),
-            'Message-ID: <' . bin2hex(random_bytes(10)) . '@' . $dominio . '>',
+            'To: ' . $to,
+            'Subject: ' . $this->encode($this->clean($subject)),
+            'Message-ID: <' . bin2hex(random_bytes(10)) . '@' . $domain . '>',
             'MIME-Version: 1.0',
-            'Content-Type: multipart/alternative; boundary="' . $limite . '"',
+            'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
         ];
-        $parte = fn(string $tipo, string $corpo) =>
-            "--$limite\r\nContent-Type: $tipo; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
-            . chunk_split(base64_encode($corpo), 76, "\r\n");
+        $part = function ($type, $body) use ($boundary) {
+            return "--$boundary\r\nContent-Type: $type; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode($body), 76, "\r\n");
+        };
 
-        return implode("\r\n", $cabecalhos) . "\r\n\r\n"
-            . $parte('text/plain', $texto) . $parte('text/html', $html) . "--$limite--";
+        return implode("\r\n", $headers) . "\r\n\r\n" . $part('text/plain', $text) . $part('text/html', $html) . "--$boundary--";
     }
 
-    private function limpar(string $s): string
+    /**
+     * @param string $value
+     * @return string
+     */
+    private function clean($value)
     {
-        return trim(str_replace(["\r", "\n"], ' ', $s)); // evita header injection
+        return trim(str_replace(["\r", "\n"], ' ', $value)); // evita header injection
     }
 
-    private function codificar(string $s): string
+    /**
+     * @param string $value
+     * @return string
+     */
+    private function encode($value)
     {
-        return preg_match('/[^\x20-\x7E]/', $s) ? '=?UTF-8?B?' . base64_encode($s) . '?=' : $s;
+        return preg_match('/[^\x20-\x7E]/', $value) ? '=?UTF-8?B?' . base64_encode($value) . '?=' : $value;
     }
 
-    private function cmd(string $linha, array $ok): string
+    /**
+     * @param string $line
+     * @param int[] $expected
+     * @return string
+     * @throws \RuntimeException
+     */
+    private function command($line, $expected)
     {
-        fwrite($this->fp, $linha . "\r\n");
-        return $this->esperar($ok);
+        fwrite($this->socket, $line . "\r\n");
+        return $this->expect($expected);
     }
 
-    private function esperar(array $ok): string
+    /**
+     * @param int[] $expected
+     * @return string
+     * @throws \RuntimeException
+     */
+    private function expect($expected)
     {
-        $resp = '';
-        while (($l = fgets($this->fp, 515)) !== false) {
-            $resp .= $l;
-            if (strlen($l) < 4 || $l[3] === ' ') {
+        $response = '';
+        while (($line = fgets($this->socket, 515)) !== false) {
+            $response .= $line;
+            if (strlen($line) < 4 || $line[3] === ' ') {
                 break;
             }
         }
-        if (!in_array((int)substr($resp, 0, 3), $ok, true)) {
-            throw new \RuntimeException('SMTP: ' . (trim($resp) ?: 'sem resposta/timeout'));
+        if (!in_array((int)substr($response, 0, 3), $expected, true)) {
+            throw new \RuntimeException('SMTP: ' . (trim($response) ?: 'sem resposta/timeout'));
         }
-        return $resp;
+        return $response;
     }
 }

@@ -149,3 +149,104 @@ CREATE TABLE emails_enviados (
     criado_em     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_emails_dest ON emails_enviados (lower(destinatario));
+
+-- =====================================================================
+-- Saúde dos animais: dieta, vacinas, consultas e sintomas
+-- =====================================================================
+CREATE TABLE tipos_alimentacao (codigo VARCHAR(12) PRIMARY KEY, nome VARCHAR(40) NOT NULL, ordem SMALLINT NOT NULL DEFAULT 0);
+INSERT INTO tipos_alimentacao VALUES ('seca','Ração seca',1),('umida','Ração úmida',2),('natural','Alimentação natural',3),
+                                     ('mista','Mista',4),('terapeutica','Dieta terapêutica',5);
+
+CREATE TABLE veterinarios (
+    id        SERIAL PRIMARY KEY,
+    nome      VARCHAR(120) NOT NULL,
+    clinica   VARCHAR(120),
+    telefone  VARCHAR(30),
+    crmv      VARCHAR(30)
+);
+
+-- especie NULL = vacina serve para qualquer espécie
+CREATE TABLE vacinas (
+    id       SERIAL PRIMARY KEY,
+    nome     VARCHAR(80) NOT NULL,
+    especie  VARCHAR(10) REFERENCES especies(codigo)
+);
+CREATE UNIQUE INDEX uq_vacina ON vacinas (lower(nome));
+
+CREATE TABLE animais_vacinas (
+    id               SERIAL PRIMARY KEY,
+    animal_id        INTEGER NOT NULL REFERENCES animais(id) ON DELETE CASCADE,
+    vacina_id        INTEGER NOT NULL REFERENCES vacinas(id),
+    aplicada_em      DATE NOT NULL,
+    proxima_dose_em  DATE,
+    veterinario_id   INTEGER REFERENCES veterinarios(id) ON DELETE SET NULL,
+    observacoes      TEXT,
+    CONSTRAINT ck_proxima_dose CHECK (proxima_dose_em IS NULL OR proxima_dose_em >= aplicada_em)
+);
+CREATE INDEX idx_animais_vacinas_animal ON animais_vacinas (animal_id);
+
+CREATE TABLE dietas (
+    id                  SERIAL PRIMARY KEY,
+    animal_id           INTEGER NOT NULL REFERENCES animais(id) ON DELETE CASCADE,
+    tipo_alimentacao    VARCHAR(12) NOT NULL REFERENCES tipos_alimentacao(codigo),
+    descricao           TEXT,
+    refeicoes_por_dia   SMALLINT CHECK (refeicoes_por_dia BETWEEN 1 AND 12),
+    restricoes          TEXT,
+    iniciada_em         DATE NOT NULL,
+    encerrada_em        DATE,
+    CONSTRAINT ck_dieta_datas CHECK (encerrada_em IS NULL OR encerrada_em >= iniciada_em)
+);
+CREATE INDEX idx_dietas_animal ON dietas (animal_id);
+
+CREATE TABLE sintomas (
+    id    SERIAL PRIMARY KEY,
+    nome  VARCHAR(80) NOT NULL
+);
+CREATE UNIQUE INDEX uq_sintoma ON sintomas (lower(nome));
+
+CREATE TABLE consultas (
+    id              SERIAL PRIMARY KEY,
+    animal_id       INTEGER NOT NULL REFERENCES animais(id) ON DELETE CASCADE,
+    veterinario_id  INTEGER REFERENCES veterinarios(id) ON DELETE SET NULL,
+    consultada_em   DATE NOT NULL,
+    motivo          VARCHAR(200) NOT NULL,
+    diagnostico     TEXT,
+    tratamento      TEXT,
+    observacoes     TEXT,
+    retorno_em      DATE,
+    CONSTRAINT ck_retorno CHECK (retorno_em IS NULL OR retorno_em >= consultada_em)
+);
+CREATE INDEX idx_consultas_animal ON consultas (animal_id);
+
+-- o que o animal apresentava na consulta (N:N)
+CREATE TABLE consultas_sintomas (
+    consulta_id  INTEGER NOT NULL REFERENCES consultas(id) ON DELETE CASCADE,
+    sintoma_id   INTEGER NOT NULL REFERENCES sintomas(id),
+    PRIMARY KEY (consulta_id, sintoma_id)
+);
+
+-- =====================================================================
+-- Cadastros iniciais (o usuário escolhe, não digita)
+-- =====================================================================
+INSERT INTO racas (especie, nome)
+SELECT 'cachorro', unnest(ARRAY['Sem raça definida (SRD)','Labrador Retriever','Golden Retriever','Poodle','Pug','Shih Tzu',
+  'Yorkshire Terrier','Bulldog Francês','Bulldog Inglês','Pastor Alemão','Rottweiler','Dachshund (Salsicha)','Beagle',
+  'Border Collie','Husky Siberiano','Spitz Alemão (Lulu da Pomerânia)','Pinscher','Maltês','Lhasa Apso','Boxer',
+  'Chihuahua','Cocker Spaniel','Dobermann','Pit Bull','Akita','Schnauzer','Fila Brasileiro','Pastor Belga']);
+INSERT INTO racas (especie, nome)
+SELECT 'gato', unnest(ARRAY['Sem raça definida (SRD)','Siamês','Persa','Maine Coon','Angorá','Bengal','Ragdoll','Sphynx',
+  'British Shorthair','Himalaio','Abissínio','Birman','Exótico']);
+INSERT INTO racas (especie, nome) VALUES ('outro','Sem raça definida (SRD)');
+
+INSERT INTO cores (nome) SELECT unnest(ARRAY['Preto','Branco','Caramelo','Marrom','Cinza','Dourado','Tigrado','Rajado',
+  'Malhado','Tricolor','Preto e branco','Laranja','Creme','Bege']);
+
+INSERT INTO vacinas (nome, especie) VALUES
+ ('V10 (polivalente canina)','cachorro'),('Antirrábica',NULL),('Gripe canina (tosse dos canis)','cachorro'),
+ ('Giárdia','cachorro'),('Leishmaniose','cachorro'),
+ ('V3 (tríplice felina)','gato'),('V4 (quádrupla felina)','gato'),('V5 (quíntupla felina)','gato'),
+ ('FeLV (leucemia felina)','gato');
+
+INSERT INTO sintomas (nome) SELECT unnest(ARRAY['Vômito','Diarreia','Falta de apetite','Apatia','Coceira','Tosse','Espirros',
+  'Febre','Claudicação (mancando)','Perda de peso','Feridas na pele','Secreção ocular','Secreção nasal','Convulsão',
+  'Dificuldade para urinar','Sangramento','Queda de pelos','Dor ao toque']);

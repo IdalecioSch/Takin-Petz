@@ -1,113 +1,77 @@
-# Site de Adoção e Acolhimento de Pets
+# Takin Petz — site de adoção e acolhimento de pets
 
 Projeto de Extensão · Programação Web I · UNIDAVI.
-**PHP puro (sem framework)**, **PostgreSQL** (PDO) e **SMTP** com cliente próprio (sockets, sem PHPMailer).
+PHP puro (sem framework), PostgreSQL (PDO), SMTP com cliente próprio, arquitetura MVC com `Persistence` por model.
 
 ## Requisitos
 
-- PHP 8.1+ com as extensões `pdo_pgsql`, `mbstring` e `fileinfo`
+- PHP 8.1+ com `pdo_pgsql`, `mbstring`, `fileinfo` (e `allow_url_fopen` ligado, para buscar as cidades no IBGE)
 - PostgreSQL 12+
 - Um servidor SMTP (para testar: [Mailtrap](https://mailtrap.io), porta 587 com `tls`)
 
 ## Instalação
 
 ```bash
-# 1) banco (se já existia o schema antigo: dropdb adocao antes)
-createdb -U postgres adocao
-psql -U postgres -d adocao -f sql/schema.sql
-
-# 2) configuração
-cp config/config.example.php config/config.php   # edite banco, SMTP e dados da entidade
-
-# 3) primeiro administrador (a senha é pedida no terminal)
-php scripts/criar_admin.php "Seu Nome" voce@exemplo.org
-
-# 4) rodar localmente
+createdb -U postgres adocao                       # se já existia o schema antigo: dropdb adocao antes
+psql -U postgres -d adocao -f sql/schema.sql      # tabelas + cadastros iniciais (raças, cores, vacinas, sintomas)
+cp config/config.example.php config/config.php    # edite banco, SMTP e dados da entidade
+php scripts/create_admin.php "Seu Nome" voce@exemplo.org
 php -S localhost:8000 -t public public/index.php
 ```
 
 Site: <http://localhost:8000> · Painel: <http://localhost:8000/admin/login>
 
-### Uploads
+- **Produção:** document root em `public/`. Apache usa o `public/.htaccess`; Nginx: `location / { try_files $uri /index.php?$query_string; }`.
+- **Uploads:** `public/uploads/` precisa de escrita. No `php.ini`, `upload_max_filesize` e `post_max_size` ≥ `16M` (o padrão do PHP é 2 MB).
+- **PHP 8.4+:** `Animal $Animal = null` (tipo implícito nulo, padrão do projeto) gera aviso de *deprecated*; se for rodar em 8.4+, troque por `?Animal $Animal = null`.
 
-Fotos vão para `public/uploads/` (o usuário do PHP precisa de permissão de escrita).
-No `php.ini`, `upload_max_filesize` e `post_max_size` precisam comportar as fotos
-(o padrão do PHP é 2 MB, e o limite do projeto é 3 MB por foto, até 5 por animal: use algo como `16M`).
-
-### Produção
-
-- Aponte o *document root* para a pasta `public/`. `app/` e `config/` ficam fora do alcance da web.
-- Apache: o `public/.htaccess` já faz o rewrite. Nginx: `location / { try_files $uri /index.php?$query_string; }`.
-- Se o site ficar em subpasta (ex.: `/adocao`), ajuste `base_path` em `config/config.php`.
-- Com HTTPS, os cookies de sessão passam a sair com a flag `secure` automaticamente.
-- Deixe `debug` como `false`.
-
-## Arquitetura (OOP + MVC, sem framework)
+## Arquitetura
 
 ```
-public/index.php        front controller (único ponto de entrada) + .htaccess
+public/index.php        ponto único de entrada
 app/
-  Core/                 mini-framework: Application, Router, Request, Controller, View, Model (Active Record),
-                        Database (PDO), Session, Csrf, Auth, Validator, Dominio, HttpException
-  Models/               Animal, Foto, Raca, Cor, Pessoa, Cidade, Solicitacao, Administrador, MensagemContato, EmailLog
-  Controllers/          Home, Catalogo, Adocao, Contato, Pagina  +  Admin/ (Login, Painel, Animal, Solicitacao)
-  Services/             Smtp, Mailer, Notificador (e-mails), UploadFotos
-  Views/                layouts/, partials/ e uma pasta por área
-  rotas.php             tabela de rotas
-config/  sql/  scripts/  docs/modelagem.md
+  Core/         Application, Router, Controller, View, Model, Persistence, Database, Messages, Validator,
+                Domain, Session, Csrf, Auth, Config, exceções
+  Utils/        ArrayUtils, ModelUtils, PersistenciaUtils, ControllerUtils, StringUtils, DateUtils  (tudo estático)
+  Models/       só dados (+ rótulos): Animal, Foto, Pessoa, Solicitacao, Consulta...
+  Persistence/  um por model; é aqui que ficam os SQLs escritos à mão
+  Controllers/  públicos + Admin/ (CrudController genérico para os cadastros)
+  Services/     Smtp, Mailer, Notifier, PhotoUploader, IbgeClient
+  Views/        layouts/, partials/ e uma pasta por área
+  routes.php    tabela de rotas
 ```
 
-**Models persistem direto (Active Record).** Cada model sabe ler e gravar a própria tabela:
+**Caminho de uma requisição:** `Router` → `Controller` (tem `$this->Persistence` e `$this->Model`) → `Persistence` (SQL) → `Model` (dados) → `View`.
 
-```php
-$animal = Animal::buscar(3);          // SELECT
-$animal->nome = 'Rex';
-$animal->salvar();                    // UPDATE só das colunas alteradas
-$novo = (new Animal([...]))->salvar(); // INSERT ... RETURNING *
-Animal::onde('status = :s', ['s' => 'disponivel'], 'nome');
-$animal->fotos();                     // relacionamento (carregado sob demanda)
-```
+### Convenções do código
 
-As regras de negócio ficam nos models (ex.: `Solicitacao::aprovar()` aprova, adota o animal e recusa os demais
-numa transação), os controllers só orquestram e as views só exibem.
+- **Mensagens:** todas em `Core\Messages`. Uso: `Messages::get(Messages::ANIMAL_SAVED)` ou `Messages::get(Messages::ANIMAL_DELETED, $name)`.
+- **Nomes:** métodos em inglês (`getAllModel`, `save`, `refresh`...). Variáveis que guardam objetos começam com maiúscula (`$Animal`, `$Persistence`); arrays, textos e números em minúscula.
+- **Tipos:** nada de tipo em escalares/retorno; só classes, como em `Animal $Animal = null`. Cada método tem docblock só com `@param`, `@return` e `@throws`.
+- **Persistence:** cada model tem a sua. A base (`Core\Persistence`) traz `getAllModel`, `getModelById`, `count`, `save`, `insert`, `update`, `delete`, `refresh`, `getSqlGetAll`, `getSqlCount`, `getSqlGetById`, `getSqlDelete`. Cada filha escreve o seu `getSqlInsert`, `getSqlUpdate`, `getParams` (e `getSqlGetAll` quando precisa de JOIN). O alias da tabela principal é sempre `t`.
+- **`getModelById` e `refresh`** trazem o model completo (inclusive coleções, como as fotos do animal); `getAllModel` traz só as linhas, sem consultas extras.
+- **Utils estáticas:** lógica reaproveitável (montar WHERE, tratar upload, ler POST, datas, ids de models...) fica nas `*Utils`.
 
-> O banco está em **3ª forma normal**. Veja `docs/modelagem.md` (problemas do modelo antigo, o que mudou, DER).
+### Criar um cadastro novo em 3 arquivos
 
-## O que foi implementado
+1. `Models/Xxx.php` (classe vazia que estende `Model`)
+2. `Persistence/XxxPersistence.php` (`getTable`, `getModelClass`, `getSqlInsert`, `getSqlUpdate`, `getParams`)
+3. `Controllers/Admin/XxxController.php` estendendo `CrudController` (título, campos e colunas) + uma linha em `routes.php`: `$Router->crud('/admin/xxx', XxxController::class);`
 
-**MVP completo:** RF01–RF09, RF11–RF20 e RF23–RF25. **Extra:** RF10 (contato por e-mail).
+## O que o sistema faz
 
-| Regra | Onde |
-| --- | --- |
-| RN01, RN17 (fotos: mín. 1, máx. 5, 3 MB, JPG/PNG/WEBP) | `Admin\AnimalController`, `Services\UploadFotos` (tipo real via `finfo` + `getimagesize`, nome aleatório) |
-| RN03 (só Disponível no catálogo e para pedidos) | `Animal::catalogo()`, `CatalogoController`, `AdocaoController` |
-| RN04, RN11, RN12 (aprovar → Adotado, recusa automática dos demais, data/responsável) | `Solicitacao::aprovar()` (transação com `FOR UPDATE`) |
-| RN05, RF16 (animal com pedidos não é excluído, só ocultado) | `Animal::remover()` |
-| RN10 (um pedido pendente por e-mail/animal) | `Solicitacao::jaPendente()` + índice único parcial no banco |
-| RN14–RN16 (login, `password_hash`, dados só no painel) | `Core\Auth`, `Admin\AdminController`, `Administrador` |
-| RN18–RN20 (e-mails; falha não impede o pedido; log) | `Services\Mailer`/`Notificador`, tabela `emails_enviados` |
-| RN21, RN22 (consentimento LGPD; exclusão de dados) | `AdocaoController`, `Pessoa::excluirDados()` (cascade) |
-
-Segurança (RNF02/03/06): PDO com *prepared statements*, `htmlspecialchars` em toda saída, CSRF em todos os POST,
-`session_regenerate_id` no login, cookies `HttpOnly`/`SameSite`, honeypot anti-bot nos formulários públicos,
-`.htaccess` bloqueando execução de PHP em `uploads/`; só `public/` é exposta.
+- **Site:** catálogo com filtros, página do animal (com vacinas aplicadas), pedido de adoção, contato, sobre.
+- **Menos digitação:** estado e cidade por seleção (municípios vindos do IBGE e guardados no banco na primeira consulta de cada UF; se o IBGE estiver fora do ar, o formulário aceita digitar a cidade); raça (filtrada pela espécie) e cor por seleção, com cadastro no painel.
+- **Painel:** animais (fotos, status), pedidos (aprovar/recusar com e-mails e recusa automática dos demais), cadastros (raças, cores, veterinários, vacinas, sintomas).
+- **Saúde do animal:** vacinas (com próxima dose), alimentação/dieta (com histórico), consultas (veterinário, o que o animal apresentava, diagnóstico, tratamento, retorno).
+- **Regras:** RN01, RN03–RN05, RN10–RN12, RN14–RN22 (veja `docs/modelagem.md` para as constraints no banco).
+- **Segurança:** PDO com prepared statements, escape em toda saída, CSRF em todo POST, sessão regenerada no login, honeypot nos formulários, upload validado pelo conteúdo real do arquivo.
 
 ## SMTP
 
-Em `config.php` → `smtp`:
-
-- `seguranca`: `'tls'` (STARTTLS, porta 587), `'ssl'` (porta 465) ou `'none'` (só para testes locais).
-- Autenticação `AUTH LOGIN`; o certificado do servidor é verificado.
-- E-mail em `multipart/alternative` (texto + HTML), assunto em UTF-8.
-- Cada envio (sucesso ou falha) é registrado: `SELECT * FROM emails_enviados ORDER BY id DESC;`
-
-## Fora desta versão
-
-RF21 e RF22 (gerenciar administradores, recuperar senha) e RF26–RF30 (extras 3 a 7).
-O status "Em análise" existe e pode ser definido manualmente no painel, mas o sistema não o aplica sozinho
-(decisão a validar com a entidade, como diz o documento).
+Em `config.php` → `smtp`: `seguranca` = `'tls'` (587), `'ssl'` (465) ou `'none'` (só local). Todo envio (sucesso ou falha) é registrado em `emails_enviados`; falha de e-mail nunca derruba o pedido.
 
 ## Antes de entregar
 
-- Preencher os dados da entidade em `config.php` e os textos de `app/Views/pagina/sobre.php`.
+- Preencher os dados da entidade em `config.php` e o texto de `app/Views/page/about.php`.
 - Não subir `config/config.php` nem dados reais de solicitantes para o GitHub (já está no `.gitignore`).

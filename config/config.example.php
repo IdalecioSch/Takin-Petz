@@ -30,6 +30,11 @@ return [
         'timeout'         => 10,
     ],
 
+    // API de municípios do IBGE (usada para o select de cidades; %s = UF). Normalmente não precisa mudar.
+    'ibge' => [
+        'cities_url' => 'https://servicodados.ibge.gov.br/api/v1/localidades/estados/%s/municipios',
+    ],
+
     'upload' => [
         'max_bytes' => 3 * 1024 * 1024, // RN17: 3 MB por foto
         'max_fotos' => 5,               // RN17: até 5 fotos por animal

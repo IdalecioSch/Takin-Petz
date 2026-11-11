@@ -1,57 +1,82 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class Session
+class Session
 {
-    public static function iniciar(): void
+    /**
+     * @return void
+     */
+    public static function start()
     {
         ini_set('session.use_strict_mode', '1');
         session_set_cookie_params([
             'lifetime' => 0,
-            'path'     => '/',
+            'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
-            'secure'   => !empty($_SERVER['HTTPS']),
+            'secure' => !empty($_SERVER['HTTPS']),
         ]);
         session_start();
     }
 
-    public static function get(string $chave, mixed $padrao = null): mixed
+    /**
+     * @param string $key
+     * @param mixed $default
+     * @return mixed
+     */
+    public static function get($key, $default = null)
     {
-        return $_SESSION[$chave] ?? $padrao;
+        return isset($_SESSION[$key]) ? $_SESSION[$key] : $default;
     }
 
-    public static function set(string $chave, mixed $valor): void
+    /**
+     * @param string $key
+     * @param mixed $value
+     * @return void
+     */
+    public static function set($key, $value)
     {
-        $_SESSION[$chave] = $valor;
+        $_SESSION[$key] = $value;
     }
 
-    public static function flash(string $tipo, string $msg): void
+    /**
+     * @param string $type
+     * @param string $message
+     * @return void
+     */
+    public static function flash($type, $message)
     {
-        $_SESSION['_flash'][] = ['tipo' => $tipo, 'msg' => $msg];
+        $_SESSION['_flash'][] = ['type' => $type, 'message' => $message];
     }
 
-    /** Lê e limpa as mensagens flash. */
-    public static function flashes(): array
+    /**
+     * @return array
+     */
+    public static function pullFlashes()
     {
-        $f = $_SESSION['_flash'] ?? [];
+        $flashes = self::get('_flash', []);
         unset($_SESSION['_flash']);
-        return $f;
+        return $flashes;
     }
 
-    public static function regenerar(): void
+    /**
+     * @return void
+     */
+    public static function regenerate()
     {
         session_regenerate_id(true);
     }
 
-    public static function destruir(): void
+    /**
+     * @return void
+     */
+    public static function destroy()
     {
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
             $p = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', $p['secure'], $p['httponly']);
+            setcookie(session_name(), '', time() - 42000, $p['path'], isset($p['domain']) ? $p['domain'] : '', $p['secure'], $p['httponly']);
         }
         session_destroy();
     }

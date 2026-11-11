@@ -1,50 +1,83 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-/** Acumula mensagens de erro de validação. */
-final class Validator
-{
-    private array $erros = [];
+use App\Utils\StringUtils;
 
-    public function regra(bool $ok, string $mensagem): static
+class Validator
+{
+    private $errors = [];
+
+    /**
+     * @param bool $ok
+     * @param string $message
+     * @return static
+     */
+    public function rule($ok, $message)
     {
         if (!$ok) {
-            $this->erros[] = $mensagem;
+            $this->errors[] = $message;
         }
         return $this;
     }
 
-    public function email(string $valor, string $mensagem): static
+    /**
+     * @param string $value
+     * @param string $message
+     * @return static
+     */
+    public function email($value, $message)
     {
-        return $this->regra(filter_var($valor, FILTER_VALIDATE_EMAIL) !== false && mb_strlen($valor) <= 160, $mensagem);
+        return $this->rule(filter_var($value, FILTER_VALIDATE_EMAIL) !== false && StringUtils::length($value) <= 160, $message);
     }
 
-    public function emDominio(string $tabela, string $valor, string $mensagem): static
+    /**
+     * @param string $table
+     * @param string $value
+     * @param string $message
+     * @return static
+     */
+    public function inDomain($table, $value, $message)
     {
-        return $this->regra(Dominio::valido($tabela, $valor), $mensagem);
+        return $this->rule(Domain::isValid($table, $value), $message);
     }
 
-    public function tamanho(string $valor, int $min, int $max, string $mensagem): static
+    /**
+     * @param string $value
+     * @param int $min
+     * @param int $max
+     * @param string $message
+     * @return static
+     */
+    public function length($value, $min, $max, $message)
     {
-        $n = mb_strlen($valor);
-        return $this->regra($n >= $min && $n <= $max, $mensagem);
+        $size = StringUtils::length($value);
+        return $this->rule($size >= $min && $size <= $max, $message);
     }
 
-    public function adicionar(array $erros): static
+    /**
+     * @param array $errors
+     * @return static
+     */
+    public function addErrors($errors)
     {
-        $this->erros = array_merge($this->erros, $erros);
+        $this->errors = array_merge($this->errors, $errors);
         return $this;
     }
 
-    public function falhou(): bool
+    /**
+     * @return bool
+     */
+    public function failed()
     {
-        return $this->erros !== [];
+        return $this->errors !== [];
     }
 
-    public function erros(): array
+    /**
+     * @return array
+     */
+    public function getErrors()
     {
-        return $this->erros;
+        return $this->errors;
     }
 }

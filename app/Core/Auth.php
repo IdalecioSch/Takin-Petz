@@ -1,39 +1,48 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
 use App\Models\Administrador;
+use App\Persistence\AdministradorPersistence;
 
-final class Auth
+class Auth
 {
-    private static ?Administrador $admin = null;
-    private static bool $carregado = false;
+    private static $Admin;
+    private static $loaded = false;
 
-    /** Administrador logado (e ainda ativo) ou null. */
-    public static function admin(): ?Administrador
+    /**
+     * @return Administrador|null
+     */
+    public static function getAdmin()
     {
-        if (!self::$carregado) {
+        if (!self::$loaded) {
             $id = Session::get('admin_id');
-            $a = $id ? Administrador::buscar((int)$id) : null;
-            self::$admin = ($a && $a->ativo) ? $a : null;
-            self::$carregado = true;
+            $Admin = $id ? (new AdministradorPersistence())->getModelById((int)$id) : null;
+            self::$Admin = ($Admin && $Admin->ativo) ? $Admin : null;
+            self::$loaded = true;
         }
-        return self::$admin;
+        return self::$Admin;
     }
 
-    public static function entrar(Administrador $a): void
+    /**
+     * @param Administrador $Admin
+     * @return void
+     */
+    public static function login(Administrador $Admin)
     {
-        Session::regenerar();
-        Session::set('admin_id', $a->id());
-        self::$admin = $a;
-        self::$carregado = true;
+        Session::regenerate();
+        Session::set('admin_id', $Admin->getId());
+        self::$Admin = $Admin;
+        self::$loaded = true;
     }
 
-    public static function sair(): void
+    /**
+     * @return void
+     */
+    public static function logout()
     {
-        Session::destruir();
-        self::$admin = null;
-        self::$carregado = true;
+        Session::destroy();
+        self::$Admin = null;
+        self::$loaded = true;
     }
 }

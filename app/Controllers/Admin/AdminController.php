@@ -1,27 +1,34 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Controllers\Admin;
 
 use App\Core\{Auth, Controller};
-use App\Models\Administrador;
 
 /** Base do painel: RN14 — só administrador autenticado e ativo entra. */
 abstract class AdminController extends Controller
 {
-    protected Administrador $admin;
+    protected $Admin;
 
-    public function antes(): void
+    /**
+     * @return void
+     */
+    public function before()
     {
-        $admin = Auth::admin();
-        if (!$admin) {
-            $this->redirecionar('/admin/login');
+        $Admin = Auth::getAdmin();
+        if (!$Admin) {
+            $this->redirect('/admin/login');
         }
-        $this->admin = $admin;
+        $this->Admin = $Admin;
     }
 
-    protected function viewAdmin(string $template, array $dados = []): void
+    /**
+     * @param string $template
+     * @param array $data
+     * @param int $status
+     * @return void
+     */
+    protected function adminView($template, $data = [], $status = 200)
     {
-        $this->view($template, $dados + ['admin' => $this->admin], 'admin');
+        $this->view($template, $data + ['Admin' => $this->Admin], 'admin', $status);
     }
 }

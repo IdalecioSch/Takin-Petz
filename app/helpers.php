@@ -1,80 +1,151 @@
 <?php
-declare(strict_types=1);
 
-use App\Core\{Config, Csrf, Dominio, Session, View};
+use App\Core\{Config, Csrf, Domain, Messages, Session, View};
+use App\Utils\DateUtils;
 
-// Funções curtas para uso nas views.
-function config(string $caminho, mixed $padrao = null): mixed
+// Atalhos para uso nas views.
+
+/**
+ * @param string $path
+ * @param mixed $default
+ * @return mixed
+ */
+function config($path, $default = null)
 {
-    return Config::get($caminho, $padrao);
+    return Config::get($path, $default);
 }
 
-function e(mixed $s): string
+/**
+ * @param mixed $value
+ * @return string
+ */
+function e($value)
 {
-    return htmlspecialchars((string)($s ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return htmlspecialchars((string)($value === null ? '' : $value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function url(string $caminho = ''): string
+/**
+ * @param string $path
+ * @return string
+ */
+function url($path = '')
 {
-    return rtrim((string)Config::get('base_path', ''), '/') . '/' . ltrim($caminho, '/');
+    return rtrim((string)Config::get('base_path', ''), '/') . '/' . ltrim($path, '/');
 }
 
-function old(string $campo, mixed $padrao = ''): string
+/**
+ * @param string $field
+ * @param mixed $default
+ * @return string
+ */
+function old($field, $default = '')
 {
-    $v = $_POST[$campo] ?? $padrao;
-    return e(is_scalar($v) ? $v : '');
+    $value = isset($_POST[$field]) ? $_POST[$field] : $default;
+    return e(is_scalar($value) ? $value : '');
 }
 
-function csrf_field(): string
+/**
+ * @return string
+ */
+function csrf_field()
 {
-    return Csrf::campo();
+    return Csrf::field();
 }
 
-function foto_url(?string $arquivo): string
+/**
+ * @param string $message
+ * @param mixed ...$args
+ * @return string
+ */
+function msg($message)
 {
-    return $arquivo ? url('uploads/' . rawurlencode($arquivo)) : url('img/sem-foto.svg');
+    return call_user_func_array([Messages::class, 'get'], func_get_args());
 }
 
-function data_br(?string $ts): string
+/**
+ * @param string|null $file
+ * @return string
+ */
+function photo_url($file)
 {
-    return $ts ? date('d/m/Y H:i', strtotime($ts)) : '—';
+    return $file ? url('uploads/' . rawurlencode($file)) : url('img/no-photo.svg');
 }
 
-function sim_nao(mixed $v): string
+/**
+ * @param string|null $timestamp
+ * @param bool $withTime
+ * @return string
+ */
+function date_br($timestamp, $withTime = true)
 {
-    return $v ? 'Sim' : 'Não';
+    return DateUtils::formatBr($timestamp, $withTime);
 }
 
-function selecionado(mixed $atual, mixed $valor): string
+/**
+ * @param mixed $value
+ * @return string
+ */
+function yes_no($value)
 {
-    return (string)$atual === (string)$valor ? ' selected' : '';
+    return $value ? 'Sim' : 'Não';
 }
 
-function marcado(mixed $v): string
+/**
+ * @param mixed $current
+ * @param mixed $value
+ * @return string
+ */
+function selected($current, $value)
 {
-    return $v ? ' checked' : '';
+    return (string)$current === (string)$value ? ' selected' : '';
 }
 
-function rotulo(string $tabela, ?string $codigo): string
+/**
+ * @param mixed $value
+ * @return string
+ */
+function checked($value)
 {
-    return Dominio::nome($tabela, $codigo);
+    return $value ? ' checked' : '';
 }
 
-function dominio(string $tabela): array
+/**
+ * @param string $table
+ * @param string|null $code
+ * @return string
+ */
+function label($table, $code)
 {
-    return Dominio::opcoes($tabela);
+    return Domain::getLabel($table, $code);
 }
 
-function parcial(string $nome, array $dados = []): void
+/**
+ * @param string $table
+ * @return array
+ */
+function domain($table)
 {
-    echo View::renderizar('partials/' . $nome, $dados, null);
+    return Domain::getOptions($table);
 }
 
-function flash_render(): string
+/**
+ * @param string $name
+ * @param array $data
+ * @return void
+ */
+function partial($name, $data = [])
+{
+    echo View::render('partials/' . $name, $data, null);
+}
+
+/**
+ * @return string
+ */
+function flash_render()
 {
     $html = '';
-    foreach (Session::flashes() as $f) {
-        $html .= '<div class="alert alert-' . e($f['tipo']) . '" role="alert">' . e($f['msg']) . '</div>';
+    foreach (Session::pullFlashes() as $flash) {
+        $html .= '<div class="alert alert-' . e($flash['type']) . '" role="alert">' . e($flash['message']) . '</div>';
     }
     return $html;
 }

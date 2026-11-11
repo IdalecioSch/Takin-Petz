@@ -1,18 +1,20 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Core;
 
-final class Application
+class Application
 {
-    public function executar(): void
+    /**
+     * @return void
+     */
+    public function run()
     {
-        $arquivo = ROOT . '/config/config.php';
-        if (!is_file($arquivo)) {
+        $file = ROOT . '/config/config.php';
+        if (!is_file($file)) {
             http_response_code(500);
-            exit('Configuração ausente: copie config/config.example.php para config/config.php.');
+            exit(Messages::ERROR_CONFIG_MISSING);
         }
-        Config::carregar($arquivo);
+        Config::load($file);
         date_default_timezone_set('America/Sao_Paulo');
 
         if (Config::get('debug')) {
@@ -23,26 +25,32 @@ final class Application
             ini_set('log_errors', '1');
         }
 
-        Session::iniciar();
+        Session::start();
         header('X-Frame-Options: SAMEORIGIN');
         header('X-Content-Type-Options: nosniff');
         header('Referrer-Policy: strict-origin-when-cross-origin');
 
         try {
-            $router = new Router();
-            (require ROOT . '/app/rotas.php')($router);
-            $router->despachar(Request::capturar());
-        } catch (HttpException $e) {
-            $this->erro($e->status(), $e->getMessage());
-        } catch (\Throwable $e) {
-            error_log('[erro] ' . $e);
-            $this->erro(500, Config::get('debug') ? $e->getMessage() : 'Ocorreu um erro interno. Tente novamente em instantes.');
+            $Router = new Router();
+            $registerRoutes = require ROOT . '/app/routes.php';
+            $registerRoutes($Router);
+            $Router->dispatch();
+        } catch (HttpException $Exception) {
+            $this->renderError($Exception->getStatus(), $Exception->getMessage());
+        } catch (\Throwable $Exception) {
+            error_log('[erro] ' . $Exception);
+            $this->renderError(500, Config::get('debug') ? $Exception->getMessage() : Messages::ERROR_INTERNAL);
         }
     }
 
-    private function erro(int $status, string $mensagem): void
+    /**
+     * @param int $status
+     * @param string $message
+     * @return void
+     */
+    private function renderError($status, $message)
     {
         http_response_code($status);
-        echo View::renderizar('erro', ['titulo' => 'Erro ' . $status, 'status' => $status, 'mensagem' => $mensagem]);
+        echo View::render('error', ['title' => 'Erro ' . $status, 'status' => $status, 'message' => $message, 'active' => '']);
     }
 }

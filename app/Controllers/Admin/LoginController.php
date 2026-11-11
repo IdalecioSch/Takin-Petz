@@ -1,36 +1,52 @@
 <?php
-declare(strict_types=1);
 
 namespace App\Controllers\Admin;
 
-use App\Core\{Auth, Controller};
+use App\Core\{Auth, Controller, Csrf, Messages};
 use App\Models\Administrador;
+use App\Persistence\AdministradorPersistence;
+use App\Utils\ControllerUtils;
 
-final class LoginController extends Controller
+class LoginController extends Controller
 {
-    public function formulario(): void
+    /** @return AdministradorPersistence */
+    protected function createPersistence() { return new AdministradorPersistence(); }
+
+    /** @return Administrador */
+    protected function createModel() { return new Administrador(); }
+
+    /**
+     * @return void
+     */
+    public function form()
     {
-        if (Auth::admin()) {
-            $this->redirecionar('/admin');
+        if (Auth::getAdmin()) {
+            $this->redirect('/admin');
         }
-        $this->view('admin/login', ['titulo' => 'Entrar', 'ativo' => '', 'erro' => '']);
+        $this->view('admin/login', ['title' => 'Entrar', 'active' => '', 'error' => '']);
     }
 
-    public function entrar(): void
+    /**
+     * @return void
+     */
+    public function login()
     {
-        $this->verificarCsrf();
-        $admin = Administrador::autenticar($this->req->texto('email'), (string)($_POST['senha'] ?? ''));
-        if ($admin) {
-            Auth::entrar($admin); // regenera o ID da sessão (RNF02)
-            $this->redirecionar('/admin');
+        $this->verifyCsrf();
+        $Admin = $this->Persistence->authenticate(ControllerUtils::getPost('email'), isset($_POST['senha']) ? (string)$_POST['senha'] : '');
+        if ($Admin) {
+            Auth::login($Admin); // regenera o ID da sessão (RNF02)
+            $this->redirect('/admin');
         }
-        $this->view('admin/login', ['titulo' => 'Entrar', 'ativo' => '', 'erro' => 'E-mail ou senha incorretos.']);
+        $this->view('admin/login', ['title' => 'Entrar', 'active' => '', 'error' => Messages::LOGIN_FAILED]);
     }
 
-    public function sair(): void
+    /**
+     * @return void
+     */
+    public function logout()
     {
-        $this->verificarCsrf();
-        Auth::sair();
-        $this->redirecionar('/admin/login');
+        $this->verifyCsrf();
+        Auth::logout();
+        $this->redirect('/admin/login');
     }
 }
